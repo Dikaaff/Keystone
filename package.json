@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.js",
     "check": "npm run test && npm run build",
     "queries:print": "node scripts/register-queries.mjs",
-    "queries:post": "node scripts/register-queries.mjs --post"
+    "queries:post": "node scripts/register-queries.mjs --post",
+    "queries:probe": "node scripts/probe-query.mjs"
   },
   "dependencies": {
     "@forge/api": "^8.4.0",

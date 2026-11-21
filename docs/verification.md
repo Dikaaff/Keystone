@@ -9,18 +9,30 @@ the demo; do not mark an item done because the code "looks right".
 **Why it matters:** a wrong property silently becomes `null`, which makes staleness 1 and
 inflates every score. A wrong relationship silently returns no rows.
 
-1. Open `https://<your-site>.atlassian.net/graphql` (GraphQL explorer) while signed in.
+1. Deploy and install the app (README steps 2–3).
 2. Register the queries: `npm run queries:print`, then `queries:post` with a browser cookie.
-3. In the explorer, run the custom query with a small parameter set:
+3. Run the probe. It sends the same GraphQL document the app uses, so a pass here means
+   the deployed code sees the same columns:
+
+```bash
+KS_SITE=yourtenant KS_COOKIE='<cookie>' \
+npm run queries:probe -- keystone_jira_inventory '{"since":"2026-01-01T00:00:00Z","limit":5}'
+```
+
+`queryParams` is a custom scalar, so it is passed as a **variable**, never as an object
+literal inside the GraphQL text. If the site has a GraphQL explorer enabled, the
+equivalent is:
 
 ```graphql
-query {
-  customQuery(queryKey: "keystone_jira_inventory", queryParams: { since: "2026-01-01T00:00:00Z", limit: 5 }, first: 5) {
+query Probe($params: CypherRequestParams) {
+  customQuery(queryKey: "keystone_jira_inventory", queryParams: $params, first: 5) {
     edges { node { columns { key value { __typename value } } } }
     pageInfo { hasNextPage endCursor }
   }
 }
 ```
+
+with variables `{"params":{"since":"2026-01-01T00:00:00Z","limit":5}}`.
 
 4. **Pass:** every column key in `src/services/queries.js` appears in every row, with
    non-null values for at least one real object.

@@ -39,31 +39,78 @@ concentrated that knowledge is, how stale it is, and who nearby could take it ov
 
 ## Run it
 
+### 0. Prerequisites
+
+The Forge CLI requires Node `^22.23.4` or `^24.22.1`. Check yours:
+
+```bash
+node -v                              # must satisfy the range above
+npm install -g @forge/cli            # installs the `forge` command
+forge --version
+forge login                          # opens the browser, pick your Atlassian site
+```
+
+You also need admin rights on one **test** site. Do not install this on a production site
+while the graph queries are unverified.
+
+### 1. Install dependencies and check the build
+
 ```bash
 npm install
-npm test          # 41 domain/query/action tests, no network
+npm test          # 50 domain/query/action tests, no network
 npm run build     # bundles the Custom UI into static/radar/build
 ```
 
-Then, with the Forge CLI installed and logged in:
+### 2. Register the app and set its id
 
 ```bash
-forge register                      # prints the app id
-# put that id in manifest.yml -> app.id
-forge deploy
-forge install --product jira --product confluence
+forge register       # asks for an app name; writes app.id into manifest.yml
 ```
 
-Register the graph queries once per site (needs an owner's browser session):
+If it only prints an id, paste it into `manifest.yml` → `app.id` (replace the all-zero
+placeholder).
+
+### 3. Lint, deploy, install
 
 ```bash
-npm run queries:print               # inspect exactly what would be sent
+npm run build            # the resource must exist before deploy
+forge lint               # manifest + code checks, no deploy
+forge deploy             # development environment by default
+forge install --product jira
+forge install --product confluence
+```
+
+`forge install` asks which site to install on. A scope change is a new app version:
+deploy, then `forge install --upgrade`.
+
+### 4. Register the graph queries (once per site)
+
+Needs an app owner's signed-in browser session, because registration is not available to
+the app runtime.
+
+```bash
+npm run queries:print    # inspect exactly what would be sent; nothing leaves the machine
 KS_SITE=yourtenant KS_APP_ID=ari:cloud:ecosystem::app/... \
 KS_COOKIE='<cookie header>' npm run queries:post
 ```
 
-Full verification steps, including the items that need a live site, are in
-[`docs/verification.md`](docs/verification.md).
+Get the cookie from the site: DevTools → Network → any `atlassian.net` request → Request
+Headers → copy the whole `cookie` value. Treat it as a secret; the script only reads it
+from the environment.
+
+### 5. Prove the columns before trusting the UI
+
+```bash
+KS_SITE=yourtenant KS_COOKIE='<cookie>' \
+npm run queries:probe -- keystone_jira_inventory '{"since":"2026-01-01T00:00:00Z","limit":5}'
+```
+
+This runs the same GraphQL document the app uses and prints the column keys plus two
+sample rows. That is verification item C1; repeat with
+`keystone_confluence_inventory` for C2.
+
+Full verification steps are in [`docs/verification.md`](docs/verification.md), and the
+Marketplace/dual-app checklist is in [`docs/marketplace.md`](docs/marketplace.md).
 
 ## Permissions
 
