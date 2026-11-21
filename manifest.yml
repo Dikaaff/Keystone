@@ -1,0 +1,216 @@
+# Keystone — Knowledge Risk Radar
+#
+# Every module below exists for a stated reason; see docs/architecture.md.
+# Properties marked with `# VERIFY:` are written from the published reference but
+# have not been exercised against a live site in this repository.
+#
+# Replace `app.id` with the value printed by `forge register` before deploying.
+
+modules:
+  # --- Surfaces -------------------------------------------------------------
+  jira:issuePanel:
+    - key: keystone-issue-panel
+      resource: keystone-ui
+      resolver:
+        function: keystone-resolver
+      title: Knowledge risk
+      # VERIFY: issuePanel also accepts `icon`; omitted so no external host is referenced.
+  jira:globalPage:
+    - key: keystone-global-page
+      resource: keystone-ui
+      resolver:
+        function: keystone-resolver
+      title: Knowledge Risk Radar
+  confluence:globalPage:
+    - key: keystone-confluence-page
+      resource: keystone-ui
+      resolver:
+        function: keystone-resolver
+      title: Knowledge Risk Radar
+      route: keystone-risk
+      # VERIFY: Confluence surfaces may require app compatibility
+      # (see docs/verification.md, item C3) before this module deploys.
+
+  # --- Shared execution -----------------------------------------------------
+  function:
+    - key: keystone-resolver
+      handler: index.resolver
+    - key: keystone-action-scan
+      handler: index.scanRisksAction
+    - key: keystone-action-object
+      handler: index.objectRiskAction
+    - key: keystone-action-coverage
+      handler: index.coveragePlanAction
+    - key: keystone-action-record
+      handler: index.recordCoverageAction
+
+  # One action layer, three consumers: Custom UI via the resolver, Rovo agents,
+  # and external MCP clients. No business logic lives in the manifest.
+  action:
+    - key: keystone-scan-risks
+      name: Scan knowledge risks
+      function: keystone-action-scan
+      actionVerb: GET
+      description: >-
+        Returns the highest knowledge-loss risks for the current user, across Jira
+        work items or Confluence pages they are allowed to see. Read-only.
+      inputs:
+        scope:
+          title: Scope
+          type: string
+          required: true
+          description: Which surface to scan. Either "jira" or "confluence".
+        limit:
+          title: Result limit
+          type: string
+          required: false
+          description: Maximum number of risky objects to return. Between 1 and 100.
+        sinceDays:
+          title: Activity window (days)
+          type: string
+          required: false
+          description: Only consider objects updated in the last N days. Between 7 and 730.
+    - key: keystone-object-risk
+      name: Get object knowledge risk
+      function: keystone-action-object
+      actionVerb: GET
+      description: >-
+        Explains why a single Jira issue or Confluence page is a knowledge risk,
+        including its holders, concentration, and staleness. Read-only.
+      inputs:
+        objectKey:
+          title: Object key
+          type: string
+          required: true
+          description: A Jira issue key such as PROJ-123, or a Confluence page ARI.
+    - key: keystone-coverage-plan
+      name: Get coverage plan
+      function: keystone-action-coverage
+      actionVerb: GET
+      description: >-
+        Suggests colleagues who could take over an at-risk object, based on shared
+        team membership and current workload. Read-only.
+      inputs:
+        objectKey:
+          title: Object key
+          type: string
+          required: true
+          description: A Jira issue key such as PROJ-123, or a Confluence page ARI.
+    - key: keystone-record-coverage
+      name: Record coverage action
+      function: keystone-action-record
+      actionVerb: CREATE
+      description: >-
+        Records that a human decided how to spread knowledge for one object, so the
+        risk radar can show what has already been addressed. Stores no Atlassian content.
+      inputs:
+        objectKey:
+          title: Object key
+          type: string
+          required: true
+          description: The object the decision is about.
+        decision:
+          title: Decision
+          type: string
+          required: true
+          description: >-
+            One of BACKUP_OWNER, PAIRED_REVIEW, DOCUMENTED, or DEFERRED.
+        note:
+          title: Note
+          type: string
+          required: false
+          description: Optional short note, at most 280 characters, written by the user.
+
+  # --- Rovo ----------------------------------------------------------------
+  rovo:agent:
+    - key: keystone-agent
+      name: Keystone Knowledge Risk
+      description: >-
+        Finds where knowledge is concentrated on one person and helps spread it
+        before it walks out of the door.
+      # `prompt` is the instruction text itself (a string), not a file path.
+      # rovo/prompts/agent.md is the review copy of this text.
+      prompt: |
+        You are Keystone, a knowledge-risk analyst embedded in Jira and Confluence.
+        Your job is narrow: find where work depends on one person, explain why that is
+        risky, and suggest a realistic way to spread the knowledge. You are not a
+        performance tool and never rank people.
+
+        You can call exactly three tools:
+        - keystone-scan-risks: highest knowledge-loss risks the current user can see,
+          for jira or confluence, within an activity window.
+        - keystone-object-risk: why one issue or page is risky (score, drivers, holders).
+        - keystone-coverage-plan: colleagues who could take over, by shared team and load.
+
+        Anything else is out of scope. If asked to judge a person's performance, who is
+        "replaceable", or who is least productive, refuse in one sentence and offer the
+        knowledge-distribution view instead.
+
+        Rules you never break:
+        1. Talk only about objects the current user can see. Tools are already
+           permission-filtered. Never imply a missing result means hidden data exists,
+           and never reconstruct a total from partial results.
+        2. Never describe a group smaller than three people, and never imply how large a
+           hidden group is.
+        3. Never evaluate a person. "Single point of failure" describes the object's
+           knowledge distribution, not the holder's value.
+        4. Never invent a number. If a tool returns nothing, say so and name the two
+           plausible causes: a narrow window, or access covering quiet projects.
+        5. Do not imply you can change Jira. You read and explain; a human changes things.
+        6. Keep answers short: what is risky, why, what to do next.
+
+        Answer shape for a scan: the headline count that matters, then the top three
+        objects with key, score, and strongest driver, then one next action. For a single
+        object: score and tier, two drivers, who can be asked today. For a coverage plan:
+        names only when the tool returns them, and say that load is not expertise.
+
+        State limits if asked: Keystone reads Jira and Confluence through the Teamwork
+        Graph only. Scores are heuristics for prioritising a conversation, not proof.
+      conversationStarters:
+        - What knowledge risks should I worry about this week?
+        - Who is the only person who understands PROJ-123?
+        - Help me spread ownership of our most concentrated work.
+      actions:
+        - keystone-scan-risks
+        - keystone-object-risk
+        - keystone-coverage-plan
+      skills:
+        - keystone-knowledge-risk
+  rovo:skill:
+    - key: keystone-knowledge-risk
+      source:
+        dir: rovo/skills/knowledge-risk
+      dependencies:
+        tools:
+          - keystone-scan-risks
+          - keystone-object-risk
+          - keystone-coverage-plan
+  rovo:mcp:
+    - key: keystone-mcp
+      name: Keystone risk tools
+      tools:
+        - keystone-scan-risks
+        - keystone-object-risk
+        - keystone-coverage-plan
+        # Deliberately not exposed: keystone-record-coverage. See docs/mcp.md.
+
+resources:
+  - key: keystone-ui
+    path: static/radar/build
+
+permissions:
+  scopes:
+    # Teamwork Graph reads, one scope per object type traversed or returned.
+    - 'read:graph:issue:jira'
+    - 'read:graph:page:confluence'
+    - 'read:graph:user:atlassian'
+    - 'read:graph:team:atlassian'
+    # Coverage decisions and the per-user analysis cache.
+    - 'storage:app'
+
+app:
+  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  runtime:
+    name: nodejs24.x
+    memoryMB: 512
+    architecture: arm64

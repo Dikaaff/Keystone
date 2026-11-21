@@ -1,0 +1,10 @@
+node_modules/
+static/radar/build/
+.forge/
+coverage/
+*.log
+
+# Local agent tooling must never be committed.
+.freebuff/
+.freebuff
+.agents/
