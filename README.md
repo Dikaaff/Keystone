@@ -1,153 +1,208 @@
-# Keystone — Knowledge Risk Radar
+# Keystone
 
-Keystone finds the work that would break if one person left, then helps spread it.
-It runs entirely on Atlassian Forge, reads the Teamwork Graph as the signed-in user,
-and sends no data anywhere else.
+## Knowledge Risk Radar for Jira and Confluence
 
-Built for **Atlassian Codegeist 2026**.
+Keystone helps teams find work that depends on one person before that knowledge becomes a single point of failure. It analyses the knowledge distribution around Jira issues and Confluence pages, explains why an object is risky, and suggests practical coverage actions.
 
----
+Keystone is built entirely on **Atlassian Forge** and the **Teamwork Graph**. It respects the signed-in user's visibility and does not send Atlassian data to an external service.
 
-## The problem, in one paragraph
+> Built for Atlassian Codegeist 2026.
 
-Every organisation has work that exactly one person understands: the payroll migration,
-the page everyone links to but nobody maintains, the integration only one engineer can
-debug. That knowledge is invisible while the person is present and catastrophic when
-they are not — and it is not recoverable after they leave. Existing tools show activity,
-not dependency. Keystone shows dependency: which objects have one reachable holder, how
-concentrated that knowledge is, how stale it is, and who nearby could take it over.
+## Why Keystone exists
 
-## What it does
+Most teams can see activity, ownership, and project status. They cannot easily see where important knowledge is concentrated in one reachable person, becoming stale, or lacking a realistic backup.
 
-| Surface | What the user gets |
+Keystone turns that hidden dependency into an actionable conversation:
+
+1. Find high-risk Jira issues or Confluence pages.
+2. Explain the signals behind each risk score.
+3. Identify colleagues who may be able to provide coverage.
+4. Record the human decision used to spread the knowledge.
+
+Keystone evaluates the **object**, never the value or performance of a person. A risk score is a prioritisation heuristic, not a personnel assessment.
+
+## Product surfaces
+
+| Surface | Purpose |
 | --- | --- |
-| **Jira issue panel** | That issue's risk score, the one or two reasons it scored that way, who can be asked today, and a coverage plan. |
-| **Jira global page** | Organisation-level radar: critical objects, ownerless work, coverage percentage, and a ranked table — scoped to what the viewer can see. |
-| **Confluence global page** | The same radar for pages (Preview; see `docs/verification.md` C3). |
-| **Rovo agent + skill** | "What depends on one person?" answered in chat, using the same three tools. |
-| **Rovo MCP** | The same read-only tools exposed to custom agents in Rovo Studio. |
+| Jira issue panel | Shows the issue's risk, key drivers, possible holders, and coverage plan. |
+| Jira global page | Provides an organisation-level radar of critical, ownerless, stale, and concentrated work visible to the user. |
+| Confluence global page | Applies the same radar model to Confluence pages; this surface remains subject to live-site verification. |
+| Rovo agent and skill | Answers questions such as "What knowledge risks should I worry about this week?" using the same action layer. |
+| Rovo MCP tools | Exposes the read-only risk tools to compatible custom agents. |
 
-## Why this is not a wrapper
+## What makes the implementation different
 
-- The score is a real model with four weighted signals, two escalation rules, and tests
-  for each boundary: `src/domain/risk.js`.
-- Ownership is classified, not counted: bots, deactivated accounts, and accounts whose
-  activity is unknown are separated from reachable humans: `src/domain/ownership.js`.
-- Queries are persisted Cypher traversals over the Teamwork Graph, registered once and
-  then called by key with typed parameters — never string-built SQL/Cypher.
-- One action layer serves UI, agent, and MCP. No `if (surface === 'mcp')` branches.
+- **A transparent risk model.** Four weighted signals and escalation rules produce an explainable score in `src/domain/risk.js`.
+- **Ownership classification.** Humans, bots, deactivated accounts, and unknown activity are treated separately in `src/domain/ownership.js`.
+- **Permission-aware analysis.** Results are scoped to what the signed-in user can see through the Teamwork Graph.
+- **One action layer.** The UI, Rovo, and MCP integrations use the same domain and action code.
+- **Persisted graph queries.** Queries are registered once and invoked by key with typed parameters.
+- **Human-in-the-loop coverage.** Keystone suggests a next step; a person decides how to spread the knowledge.
 
-## Run it
+## Architecture
 
-### 0. Prerequisites
-
-The Forge CLI requires Node `^22.23.4` or `^24.22.1`. Check yours:
-
-```bash
-node -v                              # must satisfy the range above
-npm install -g @forge/cli            # installs the `forge` command
-forge --version
-forge login                          # opens the browser, pick your Atlassian site
+```text
+Jira / Confluence
+       |
+Teamwork Graph + persisted queries
+       |
+Forge action layer
+   /       |       \\\
+  UI     Rovo     MCP
+       |
+Risk model + coverage plan + app storage
 ```
 
-You also need admin rights on one **test** site. Do not install this on a production site
-while the graph queries are unverified.
+```text
+manifest.yml              Forge modules, permissions, actions, and Rovo configuration
+src/domain/               Risk, ownership, visibility, validation, and errors
+src/services/             Teamwork Graph client, queries, cache, configuration, and audit
+src/actions/              Shared actions consumed by the UI, Rovo, and MCP
+src/ui/                   React Custom UI for the issue panel and radar
+src/index.js              Forge function entry points
+rovo/                     Rovo agent and skill definitions
+scripts/                  Persisted-query registration and probe utilities
+test/                     Node.js test suite
+docs/                     Architecture, security, verification, data model, and demo notes
+```
 
-### 1. Install dependencies and check the build
+## Requirements
+
+- Node.js 22 or newer
+- An Atlassian Cloud test site
+- Atlassian admin access to deploy and install a Forge app
+- Forge CLI 14 or newer
+
+## Local development
+
+### 1. Install dependencies
 
 ```bash
 npm install
-npm test          # 50 domain/query/action tests, no network
-npm run build     # bundles the Custom UI into static/radar/build
 ```
 
-### 2. Register the app and set its id
+### 2. Run checks
 
 ```bash
-forge register       # asks for an app name; writes app.id into manifest.yml
+npm test          # Run the domain, query, and action tests
+npm run build     # Build the Custom UI bundle
+npm run check     # Run tests and build
 ```
 
-If it only prints an id, paste it into `manifest.yml` → `app.id` (replace the all-zero
-placeholder).
-
-### 3. Lint, deploy, install
+### 3. Authenticate with Forge
 
 ```bash
-npm run build            # the resource must exist before deploy
-forge lint               # manifest + code checks, no deploy
-forge deploy             # development environment by default
+npm install --global @forge/cli
+forge login
+forge register
+```
+
+Replace the placeholder `app.id` in `manifest.yml` with the ID returned by `forge register` if the CLI does not update it automatically.
+
+### 4. Deploy to a development site
+
+```bash
+forge lint
+forge deploy
 forge install --product jira
 forge install --product confluence
 ```
 
-`forge install` asks which site to install on. A scope change is a new app version:
-deploy, then `forge install --upgrade`.
-
-### 4. Register the graph queries (once per site)
-
-Needs an app owner's signed-in browser session, because registration is not available to
-the app runtime.
+When scopes or manifest modules change, deploy the new version and upgrade the existing installation:
 
 ```bash
-npm run queries:print    # inspect exactly what would be sent; nothing leaves the machine
-KS_SITE=yourtenant KS_APP_ID=ari:cloud:ecosystem::app/... \
-KS_COOKIE='<cookie header>' npm run queries:post
+forge deploy
+forge install --upgrade
 ```
 
-Get the cookie from the site: DevTools → Network → any `atlassian.net` request → Request
-Headers → copy the whole `cookie` value. Treat it as a secret; the script only reads it
-from the environment.
-
-### 5. Prove the columns before trusting the UI
+For faster UI iteration, use the Forge tunnel where supported:
 
 ```bash
-KS_SITE=yourtenant KS_COOKIE='<cookie>' \
+forge tunnel
+```
+
+## Register and verify Teamwork Graph queries
+
+The app uses persisted queries. Registration requires an app owner's authenticated browser session and should be performed once per site.
+
+Print the exact payload without sending it anywhere:
+
+```bash
+npm run queries:print
+```
+
+Post the queries using environment variables. Keep the cookie secret and never commit it:
+
+```bash
+KS_SITE=yourtenant \\\
+KS_APP_ID=ari:cloud:ecosystem::app/... \\\
+KS_COOKIE='<cookie header>' \\\
+npm run queries:post
+```
+
+Probe a registered query before trusting the UI:
+
+```bash
+KS_SITE=yourtenant \\\
+KS_COOKIE='<cookie header>' \\\
 npm run queries:probe -- keystone_jira_inventory '{"since":"2026-01-01T00:00:00Z","limit":5}'
 ```
 
-This runs the same GraphQL document the app uses and prints the column keys plus two
-sample rows. That is verification item C1; repeat with
-`keystone_confluence_inventory` for C2.
+The complete live-site checklist is in [`docs/verification.md`](docs/verification.md). Marketplace and dual-app guidance is in [`docs/marketplace.md`](docs/marketplace.md).
 
-Full verification steps are in [`docs/verification.md`](docs/verification.md), and the
-Marketplace/dual-app checklist is in [`docs/marketplace.md`](docs/marketplace.md).
+## Permissions and data boundaries
 
-## Permissions
-
-Five scopes, each earning its place. Justifications are written for the Marketplace
-review form in [`docs/marketplace.md`](docs/marketplace.md).
-
-| Scope | Why |
+| Scope | Use |
 | --- | --- |
-| `read:graph:issue:jira` | Read Jira work items and their assignees from the graph. |
-| `read:graph:user:atlassian` | Read holder identity and last-activity data. |
-| `read:graph:team:atlassian` | Traverse user → team → teammate for coverage candidates. |
-| `read:graph:page:confluence` | Read Confluence pages for the Confluence surface. |
-| `storage:app` | Cache one user's summary, and store coverage decisions. |
+| `read:graph:issue:jira` | Read Jira work items and assignee relationships. |
+| `read:graph:page:confluence` | Read Confluence page relationships. |
+| `read:graph:user:atlassian` | Read holder identity and activity signals. |
+| `read:graph:team:atlassian` | Find potential coverage candidates through team relationships. |
+| `storage:app` | Cache per-user summaries and store coverage decisions. |
 
-No `read:jira-work`, no content scopes, no write scopes, no external hosts.
+Keystone does not request Jira write scopes, content scopes, chat or email access, or external hosts. It does not read source code or evaluate individual performance.
 
-## Repository map
+More detail is available in [`docs/security/data-classification.md`](docs/security/data-classification.md), [`docs/security/threat-model.md`](docs/security/threat-model.md), and [`docs/security/audit.md`](docs/security/audit.md).
 
+## Project status and known limitations
+
+The core risk model, ownership classification, shared actions, UI, Rovo configuration, and automated tests are implemented. Before production or Marketplace release, complete the live-site verification checklist.
+
+Known limitations:
+
+- Some Teamwork Graph field names and the Confluence ownership relationship are marked `unverified` until tested against a live site.
+- Contribution weighting currently defaults to equal weighting because the contribution relationship is not yet confirmed.
+- Coverage suggestions indicate shared team membership and current load; they are not proof of expertise.
+- Results are intentionally limited to objects visible to the current user.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Product requirements](docs/PRD.md)
+- [Data model](docs/data-model.md)
+- [Security and data classification](docs/security/data-classification.md)
+- [Threat model](docs/security/threat-model.md)
+- [Rovo integration](docs/rovo.md)
+- [MCP integration](docs/mcp.md)
+- [Live verification checklist](docs/verification.md)
+- [Demo script](docs/demo-script.md)
+- [Marketplace checklist](docs/marketplace.md)
+
+## Contributing
+
+Keep domain logic deterministic and independently testable. Changes that affect risk scoring, visibility, permissions, or data handling should include tests and documentation updates.
+
+Before opening a pull request:
+
+```bash
+npm run check
+forge lint
+git diff --check
 ```
-manifest.yml              Forge modules (surfaces, actions, Rovo agent/skill/MCP, scopes)
-src/domain/               Pure logic: risk, ownership, visibility, validation, errors
-src/services/             Teamwork Graph client, persisted queries, cache, config, audit
-src/actions/              One action layer used by UI, Rovo, and MCP
-src/ui/                   Custom UI (React): issue panel + radar + coverage drawer
-src/index.js              Forge entry points declared in the manifest
-rovo/                     Agent prompt and SKILL.md package
-scripts/                  Persisted-query registration
-test/                     node:test suite
-docs/                     PRD, architecture, data model, security, Marketplace, demo
-```
 
-## Honest limitations
+Do not commit Atlassian cookies, app credentials, generated build artifacts, or private site data.
 
-- The graph field names and the Confluence ownership relationship are marked
-  `unverified` in code and listed in `docs/verification.md`. They need one session on a
-  real site before the Confluence surface can be called done.
-- Contribution weighting is equal-by-default because a contribution relationship is not
-  yet confirmed; concentration is still meaningful, but coarser than it will be.
-- Keystone reads no source code, chat, email, or anything outside Atlassian — by design,
-  and because the submission is bound by "data does not leave the platform".
+## License
+
+This repository does not currently declare an open-source license. All rights are reserved unless the repository owner states otherwise.
