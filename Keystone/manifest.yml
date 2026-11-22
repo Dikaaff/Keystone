@@ -1,0 +1,24 @@
+modules:
+  jira:adminPage:
+    - key: keystone-hello-world-admin-page
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: Keystone
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/7bcd6408-fc96-4f04-b314-4d0041dad66d
